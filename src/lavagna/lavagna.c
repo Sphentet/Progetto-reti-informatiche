@@ -13,6 +13,39 @@ void inizializza_lavagna(){
     lav.colonne[1]=NULL;
     lav.colonne[2]=NULL;
 
+    for(int i=1; i<=10; ++i){
+
+        //creo la card
+        card_t *c=NULL;
+        card_t* newc=malloc(sizeof(card_t));
+        newc->id=i;
+        newc->colonna=0;
+        newc->utente=0;
+        newc->next_card=NULL;
+
+        char id[9];
+        sprintf(id, "testo %d", i);
+        strncpy(newc->testo, id, LUNG_TESTO+1);
+        newc->testo[LUNG_TESTO] = '\0';
+
+        time_t tempo;
+        time(&tempo);
+        newc->ultima_modifica=tempo;
+
+        //inserisco la card nella colonna to do
+        if(!lav.colonne[0]){
+            lav.colonne[0]=newc;
+        }
+        else{
+            c=lav.colonne[0];
+            while(c->next_card) c=c->next_card;
+            c->next_card=newc;
+        } 
+
+    }
+
+    
+
     lav.utenti=NULL;
     lav.num_utenti=0;
 
@@ -455,18 +488,10 @@ int handle_card(int sd, uint16_t porta){
     
 
     //formattazione dati
-    char id[6];
-    memset(id, 0, sizeof(id));
-    sprintf(id, "%d", lav.colonne[0]->id);
-    char dati[LUNG_TESTO+6];
+    char dati[LUNG_TESTO+5];
     memset(dati, 0, sizeof(dati));
-    dati[0]='\0';
-    int n=sizeof(id);
-    strncpy(dati, id, n);
-
-
-    n=sizeof(lav.colonne[0]->testo);
-    strncat(dati, lav.colonne[0]->testo, n);
+    sprintf(dati, "%4d", lav.colonne[0]->id);
+    strncpy(dati+4, lav.colonne[0]->testo, LUNG_TESTO);
 
     //lascio il mutex prima delle send (l'ho preso prima della chiamata di questa funzione), lo riprendo prima di uscire dalla funzione
     pthread_mutex_unlock(&mutex_lav);
@@ -522,6 +547,9 @@ int handle_card(int sd, uint16_t porta){
 
 
         pthread_mutex_lock(&mutex_lav);
+
+        printf("Card assegnata\n");
+
         return 1;
     }
     pthread_mutex_lock(&mutex_lav);
@@ -538,7 +566,9 @@ void* ping_user(void *arg){
 
     pthread_mutex_unlock(&mutex_lav);
     
-    sleep(90); 
+    
+    sleep(TIMER_PING);
+    
     
     pthread_mutex_lock(&mutex_lav);
     //controllo se la card è nella colonna doing e se sono passati 90 secondi dall'ultima modifica
@@ -556,7 +586,7 @@ void* ping_user(void *arg){
     }
 
     
-    if(difftime(tempo_ping, c->ultima_modifica)>=90.0){//controllo che la card non sia tornata in to do e poi dinuovo in doing
+    if(difftime(tempo_ping, c->ultima_modifica)>=TIMER_PING){//controllo che la card non sia tornata in to do e poi dinuovo in doing
 
         int sd;
         //cerco l'utente
@@ -572,8 +602,12 @@ void* ping_user(void *arg){
         pthread_mutex_unlock(&mutex_lav);
 
         //invio byte di ping
-        char ping=PING_USER;
-        int ret=send(sd, (void*)&ping, sizeof(char), 0);
+        char ping[3];
+        memset(ping, 0, sizeof(ping));
+        sprintf(ping, "%d", PING_USER);
+
+        
+        int ret=send(sd, (void*)&ping, sizeof(ping), 0);
         if(ret<=0){
             if(ret<0) perror("send ping user");
             pthread_mutex_lock(&mutex_lav);

@@ -37,6 +37,9 @@
 #define SPAZI_DX 14
 #define LARG_COL 33
 
+//costanti timer
+#define TIMER_PING 90
+#define TIMER_REVIEW 120
 
 struct strutt_utente_t {
     uint16_t porta;

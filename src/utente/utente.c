@@ -2,6 +2,7 @@
 
 char *lista_utenti=NULL;
 pthread_mutex_t mutex_u;
+pthread_mutex_t mutex_sock;
 int sock=-1;
 uint16_t porta=0;
 
@@ -40,6 +41,8 @@ int hello(int sd, int porta){
         printf("Error: porta già in uso\n");
         return -1;
     }
+
+    printf("Hello!\n");
 
     return 1;
 }
@@ -220,6 +223,7 @@ void pong_lavagna(int sd){
         else perror("send hello");
         exit(1);
     }
+    printf("pong lavagna\n");
 
 }
 
@@ -227,7 +231,7 @@ void pong_lavagna(int sd){
 
 void* review_card(void *arg){
 
-    sleep(120);
+    sleep(TIMER_REVIEW);
 
     int sd=*(int*)arg;
     
@@ -242,7 +246,9 @@ void* review_card(void *arg){
     char *utenti=NULL;
     while(!peer){
         printf("Richiedo la lista utenti\n");
+        pthread_mutex_lock(&mutex_sock);
         utenti=request_user_list(sd);
+        pthread_mutex_unlock(&mutex_sock);
         if(utenti&&strlen(utenti)>=4){//se ci sono altri utenti proseguo, sennò aspetto 5 secondi e richiedo finchè non si collega qualcuno
             peer=1;
         } 
@@ -305,7 +311,9 @@ void* review_card(void *arg){
         printf("Card completata\n");
         //invio il comando di card done
         char buf=CARD_DONE;
+        pthread_mutex_lock(&mutex_sock);
         int ret=send(sd, (void*)&buf, sizeof(buf), 0);
+        pthread_mutex_unlock(&mutex_sock);
         if(ret<=0){
             if(ret==0){
                 printf("lavagna disconnessa\n");
@@ -340,12 +348,16 @@ void* gestore_input(void *arg){
         }
 
         if(strcmp(comando, "QUIT")==0){
-            quit(sd); 
+            pthread_mutex_lock(&mutex_sock);
+            quit(sd);
+            pthread_mutex_unlock(&mutex_sock);
             pthread_exit(NULL);;
         }
         else{
             if(strcmp(comando, "CREATE_CARD")==0){
+                pthread_mutex_lock(&mutex_sock);
                 create_card(sd);
+                pthread_mutex_unlock(&mutex_sock);
             }
             else    printf("Error: comando non supportato\n");
         }
@@ -384,6 +396,7 @@ void* gestore_richieste(void *arg){
             } 
             
         }
+
         
         int comando=(int) atoi(buf);
         switch (comando)
@@ -391,7 +404,7 @@ void* gestore_richieste(void *arg){
             case HANDLE_CARD:{
 
                 //ricevo i dati della card
-                char dati[LUNG_TESTO+6];
+                char dati[LUNG_TESTO+5];
                 ret=recv(sd, dati, sizeof(dati), MSG_WAITALL);
                 if(ret<=0){
                     if(ret<0) perror("receive dati card");
@@ -414,13 +427,15 @@ void* gestore_richieste(void *arg){
 
 
                 //estraggo i dati e converto l'id della card
-                char id_tmp[4];
-                strncpy(id_tmp, dati, 4);
-                id_tmp[3]='\0';
+                char id_tmp[5];
+                strncpy(id_tmp, dati, 5);
+                id_tmp[4]='\0';
                 int id=(uint32_t) atoi(id_tmp);
 
                 char testo[LUNG_TESTO+1];
-                strncpy(testo, dati+4, LUNG_TESTO+1);
+                memset(testo, 0, sizeof(testo));
+                strncpy(testo, dati+4, LUNG_TESTO);
+                testo[LUNG_TESTO]='\0';
                 
 
                 //stampo la card
@@ -551,7 +566,7 @@ int main(int argc, char** argv){
     struct sockaddr_in listen_addr;
     
     if(listen_sd < 0){ 
-        perror("socket richieste lavagna"); 
+        perror("creazione socket richieste lavagna"); 
         _exit(1); 
     }
 
@@ -589,16 +604,16 @@ int main(int argc, char** argv){
 
 
     //thread per comandi
-    int *arg_comandi = malloc(sizeof(int));
-    *arg_comandi = sd;
+    int *arg_comandi=malloc(sizeof(int));
+    *arg_comandi=sd;
     sock=sd;
     pthread_t input;
     pthread_create(&input, NULL, gestore_input, arg_comandi);
 
 
     //thread per richieste
-    int *arg_richieste = malloc(sizeof(int));
-    *arg_richieste = sd_ltou;
+    int *arg_richieste=malloc(sizeof(int));
+    *arg_richieste=sd_ltou;
     pthread_t richieste_t;
     pthread_create(&richieste_t, NULL, gestore_richieste, arg_richieste);
 
